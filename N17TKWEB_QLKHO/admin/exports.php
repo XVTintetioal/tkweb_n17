@@ -135,12 +135,11 @@ if ($_POST['action'] ?? '') {
                 }
             }
             
-            $ngayXuat = $_POST['NgayXuat'];
             $maCH = $_POST['MaCH'];
             
-            // Cập nhật phiếu xuất
-            $stmt = $pdo->prepare("UPDATE PHIEUXUAT SET NgayXuat=?, MaCH=? WHERE MaPX=?");
-            $stmt->execute([$ngayXuat, $maCH, $maPX]);
+            // Cập nhật phiếu xuất (chỉ sửa Cửa Hàng, không sửa Ngày Xuất và Người Xuất)
+            $stmt = $pdo->prepare("UPDATE PHIEUXUAT SET MaCH=? WHERE MaPX=?");
+            $stmt->execute([$maCH, $maPX]);
             
             // Xóa chi tiết cũ và thêm mới
             $stmt = $pdo->prepare("DELETE FROM CHITIETPHIEUXUAT WHERE MaPX=?");
@@ -198,8 +197,9 @@ if ($_POST['action'] ?? '') {
             $stmt->execute([$maPX]);
             
         } elseif ($action == 'edit_detail') {
-            // Sửa chi tiết phiếu xuất
+            // Sửa chi tiết phiếu xuất - Cho phép sửa: Cửa hàng, SP, SLX
             $maPX = $_POST['MaPX'] ?? '';
+            $maCH = $_POST['MaCH'] ?? '';
             $maCTPXs = $_POST['MaCTPX'] ?? [];
             $maSPs = $_POST['MaSP'] ?? [];
             $slxs = $_POST['SLX'] ?? [];
@@ -210,6 +210,13 @@ if ($_POST['action'] ?? '') {
             $phieu = $stmt->fetch();
             
             if ($phieu && $phieu['TinhTrang_PX'] === 'Đang xử lý') {
+                // Cập nhật Cửa hàng của phiếu xuất
+                if (!empty($maCH)) {
+                    $stmt = $pdo->prepare("UPDATE PHIEUXUAT SET MaCH = ? WHERE MaPX = ?");
+                    $stmt->execute([$maCH, $maPX]);
+                }
+                
+                // Cập nhật chi tiết sản phẩm (SP và SLX)
                 foreach ($maCTPXs as $index => $maCTPX) {
                     $maSP = $maSPs[$index] ?? '';
                     $slx = $slxs[$index] ?? '';
@@ -293,7 +300,7 @@ if ($_POST['action'] ?? '') {
             
             // Danh sách trạng thái hợp lệ
             $validStatuses = ['Đang xử lý', 'Đã duyệt', 'Bị từ chối', 'Hoàn thành', 'Có thay đổi'];
-            $finalStatuses = ['Hoàn thành', 'Có thay đổi', 'Bị từ chối'];
+            $finalStatuses = ['Hoàn thành', 'Có thay đổi']; // Chỉ 2 trạng thái này không được đổi
             
             $stmt = $pdo->prepare("SELECT TinhTrang_PX FROM PHIEUXUAT WHERE MaPX = ?");
             $stmt->execute([$maPX]);
@@ -362,7 +369,7 @@ if ($_POST['action'] ?? '') {
 //  LẤY DANH SÁCH PHIẾU XUẤT
 // ============================
 $search = $_GET['search'] ?? '';
-$where = $search ? "WHERE px.MaPX LIKE '%$search%' OR ch.TenCH LIKE '%$search%' OR sp.TenSP LIKE '%$search%'" : '';
+$where = $search ? "WHERE px.MaPX LIKE '%$search%' OR ch.TenCH LIKE '%$search%' OR sp.TenSP LIKE '%$search%' OR tk.TenTK LIKE '%$search%' OR px.NgayXuat LIKE '%$search%' OR px.TinhTrang_PX LIKE '%$search%'" : '';
 $stmt = $pdo->query("
     SELECT 
         px.MaPX,
@@ -537,8 +544,8 @@ function getTrangThaiDisplay($tinhTrang) {
                 </thead>
                 <tbody>
                     <?php 
-                    $finalStatuses = ['Hoàn thành', 'Có thay đổi', 'Bị từ chối'];
-                    $mutableStatuses = ['Đang xử lý', 'Đã duyệt'];
+                    $finalStatuses = ['Hoàn thành', 'Có thay đổi']; // Chỉ 2 trạng thái này không được đổi
+                    $mutableStatuses = ['Đang xử lý']; // Chỉ cho sửa khi trạng thái 'Đang xử lý'
                     ?>
                     <?php foreach ($groupedExports as $maPX => $export): ?>
                         <?php 
@@ -727,8 +734,13 @@ function getTrangThaiDisplay($tinhTrang) {
                         <input type="text" id="editNgayXuat" disabled style="width: 100%; padding: 8px; background-color: #e0e0e0;">
                     </div>
                     <div>
-                        <label>Cửa Hàng:</label>
-                        <input type="text" id="editTenCH" disabled style="width: 100%; padding: 8px; background-color: #e0e0e0;">
+                        <label>Cửa Hàng: <span style="color: red;">*</span></label>
+                        <select id="editMaCH" name="MaCH" required style="width: 100%; padding: 8px;">
+                            <option value="">Chọn cửa hàng</option>
+                            <?php foreach ($cuaHangs as $ch): ?>
+                                <option value="<?php echo $ch['MaCH']; ?>"><?php echo htmlspecialchars($ch['TenCH']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div>
                         <label>Tình Trạng:</label>
@@ -970,10 +982,10 @@ function getTrangThaiDisplay($tinhTrang) {
                         const phieu = data.data.phieu;
                         const chiTiet = data.data.chiTiet;
                         
-                        // Điền thông tin phiếu xuất (disabled)
+                        // Điền thông tin phiếu xuất
                         document.getElementById('editMaPX').value = phieu.MaPX;
                         document.getElementById('editNgayXuat').value = new Date(phieu.NgayXuat).toLocaleDateString('vi-VN');
-                        document.getElementById('editTenCH').value = phieu.TenCH || 'N/A';
+                        document.getElementById('editMaCH').value = phieu.MaCH; // Cho phép chọn cửa hàng mới
                         document.getElementById('editTinhTrang').value = phieu.TinhTrang_PX;
                         
                         // Tạo form cho tất cả chi tiết sản phẩm
@@ -982,6 +994,7 @@ function getTrangThaiDisplay($tinhTrang) {
                             <form method="POST" id="editDetailsForm">
                                 <input type="hidden" name="action" value="edit_detail">
                                 <input type="hidden" name="MaPX" value="${phieu.MaPX}">
+                                <input type="hidden" name="MaCH" id="hiddenMaCH">
                                 
                                 <div id="productsList" style="margin-bottom: 20px;">
                                     ${chiTiet.map((detail, index) => `
@@ -1023,6 +1036,12 @@ function getTrangThaiDisplay($tinhTrang) {
                             if (selects[index]) selects[index].value = detail.MaSP;
                             if (inputs[index]) inputs[index].value = detail.SLX;
                         });
+                        
+                        // Đồng bộ giá trị Cửa hàng từ dropdown vào hidden input khi submit
+                        const form = document.getElementById('editDetailsForm');
+                        form.onsubmit = function() {
+                            document.getElementById('hiddenMaCH').value = document.getElementById('editMaCH').value;
+                        };
                         
                         openModal('editDetailModal');
                     } else {
