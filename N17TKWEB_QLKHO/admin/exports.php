@@ -11,6 +11,13 @@ if (!isset($_SESSION['user_id'])) {
 $userRole = $_SESSION['role'] ?? 'Nhân viên';
 $userId = $_SESSION['user_id'];
 
+// Hàm tạo mã phiếu xuất tự động
+function generateMaPX($pdo) {
+    $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(MaPX, 3) AS UNSIGNED)) as max_id FROM PHIEUXUAT");
+    $result = $stmt->fetch();
+    $next_id = $result['max_id'] + 1;
+    return 'PX' . str_pad($next_id, 5, '0', STR_PAD_LEFT);
+}
 
 // ============================
 //  XỬ LÝ AJAX: LẤY CHI TIẾT PHIẾU XUẤT
@@ -74,13 +81,15 @@ if ($_POST['action'] ?? '') {
     try {
         if ($action == 'add') {
             // Thêm phiếu xuất mới
-            $maPX = $_POST['MaPX'] ?? '';
+            $maPX = generateMaPX($pdo); // Tạo mã phiếu xuất tự động
             $ngayXuat = $_POST['NgayXuat'];
             $maCH = $_POST['MaCH'];
+            $maTK = $_POST['MaTK'] ?? $userId;
+            $tinhTrang = $_POST['TinhTrang_PX'] ?? 'Đang xử lý';
             
-            // Tạo phiếu xuất với trạng thái "Đang xử lý" (tương đương "Chờ duyệt")
-            $stmt = $pdo->prepare("INSERT INTO PHIEUXUAT (MaPX, NgayXuat, MaCH, MaTK, TinhTrang_PX) VALUES (?, ?, ?, ?, 'Đang xử lý')");
-            $stmt->execute([$maPX, $ngayXuat, $maCH, $userId]);
+            // Tạo phiếu xuất
+            $stmt = $pdo->prepare("INSERT INTO PHIEUXUAT (MaPX, NgayXuat, MaCH, MaTK, TinhTrang_PX) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$maPX, $ngayXuat, $maCH, $maTK, $tinhTrang]);
             
             // Thêm chi tiết phiếu xuất
             if (!empty($_POST['products'])) {
@@ -293,6 +302,43 @@ function getTrangThaiDisplay($tinhTrang) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quản Lý Xuất Kho - Hệ Thống Quản Lý Kho Tink</title>
     <link rel="stylesheet" href="../assets/css/style.css">
+    <style>
+        /* CSS để căn giữa modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            border-radius: 5px;
+            position: relative;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: black;
+        }
+    </style>
 </head>
 <body>
     <header class="header">
@@ -382,42 +428,85 @@ function getTrangThaiDisplay($tinhTrang) {
             <span class="close" onclick="closeModal('addModal')">&times;</span>
             <h2 id="modalTitle">Thêm Phiếu Xuất</h2>
             
-            <!-- Thông tin chỉ đọc (chỉ hiển thị khi sửa) -->
-            <div id="readonlyInfo" style="display: none; background: #f5f8fa; padding: 15px; border-radius: 10px; margin-bottom: 15px;">
-                <p style="margin: 5px 0;"><strong>Người lập phiếu:</strong> <span id="infoNguoiLap"></span></p>
-                <p style="margin: 5px 0;"><strong>Trạng thái:</strong> <span id="infoTrangThai"></span></p>
-            </div>
-            
             <form method="POST" id="phieuForm">
                 <input type="hidden" name="action" id="modalAction" value="add">
-                <input type="text" name="MaPX" id="MaPX" placeholder="Mã Phiếu Xuất" required>
-                <input type="date" name="NgayXuat" id="NgayXuat" required>
-                <select name="MaCH" id="MaCH" required>
-                    <option value="">Chọn Cửa Hàng</option>
-                    <?php foreach ($cuaHangs as $ch): ?>
-                        <option value="<?php echo $ch['MaCH']; ?>"><?php echo htmlspecialchars($ch['TenCH']); ?></option>
-                    <?php endforeach; ?>
-                </select>
                 
-                <h3>Chi Tiết Sản Phẩm</h3>
-                <div id="productsList">
-                    <div class="product-row" style="display: flex; gap: 10px; margin-bottom: 10px;">
-                        <select class="product-select" style="flex: 2;" required>
-                            <option value="">Chọn Sản Phẩm</option>
-                            <?php foreach ($sanPhams as $sp): ?>
-                                <option value="<?php echo $sp['MaSP']; ?>" data-sltk="<?php echo $sp['SLTK']; ?>">
-                                    <?php echo htmlspecialchars($sp['TenSP']) . ' (Tồn: ' . $sp['SLTK'] . ')'; ?>
-                                </option>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                    <div>
+                        <label>Mã Phiếu Xuất:</label>
+                        <?php 
+                        $nextMaPX = generateMaPX($pdo);
+                        ?>
+                        <input type="text" id="MaPX" value="<?php echo $nextMaPX; ?>" disabled 
+                               style="width: 100%; padding: 8px; background-color: #f0f0f0;">
+                    </div>
+                    <div>
+                        <label>Ngày Xuất:</label>
+                        <input type="date" name="NgayXuat" id="NgayXuat" required style="width: 100%; padding: 8px;">
+                    </div>
+                    <div>
+                        <label>Cửa Hàng:</label>
+                        <select name="MaCH" id="MaCH" required style="width: 100%; padding: 8px;">
+                            <option value="">Chọn cửa hàng</option>
+                            <?php foreach ($cuaHangs as $ch): ?>
+                                <option value="<?php echo $ch['MaCH']; ?>"><?php echo htmlspecialchars($ch['TenCH']); ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <input type="number" class="product-quantity" placeholder="Số lượng" min="1" style="flex: 1;" required>
-                        <button type="button" class="btn btn-delete" onclick="removeProductRow(this)" style="flex: 0;">Xóa</button>
+                    </div>
+                    <div>
+                        <label>Người Xuất:</label>
+                        <select name="MaTK" id="MaTK" required style="width: 100%; padding: 8px;">
+                            <option value="">Chọn người xuất</option>
+                            <?php
+                            $users = $pdo->query("SELECT MaTK, TenTK FROM TAIKHOAN")->fetchAll();
+                            foreach ($users as $user) {
+                                $selected = ($user['MaTK'] == $userId) ? 'selected' : '';
+                                echo "<option value='{$user['MaTK']}' {$selected}>{$user['TenTK']}</option>";
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label>Tình Trạng:</label>
+                        <select name="TinhTrang_PX" id="TinhTrang_PX" required style="width: 100%; padding: 8px;">
+                            <option value="Đang xử lý" selected>Đang xử lý</option>
+                            <option value="Đã duyệt">Đã duyệt</option>
+                            <option value="Bị từ chối">Bị từ chối</option>
+                            <option value="Hoàn thành">Hoàn thành</option>
+                            <option value="Có thay đổi">Có thay đổi</option>
+                        </select>
                     </div>
                 </div>
-                <button type="button" class="btn btn-add" onclick="addProductRow()" style="margin-bottom: 10px;">Thêm Sản Phẩm</button>
+
+                <h3>Chi Tiết Sản Phẩm</h3>
+                <div id="productsList">
+                    <div class="product-row" style="display: grid; grid-template-columns: 2fr 1fr 40px; gap: 10px; margin-bottom: 10px;">
+                        <div>
+                            <select class="product-select" required style="width: 100%; padding: 8px;">
+                                <option value="">Chọn sản phẩm</option>
+                                <?php foreach ($sanPhams as $sp): ?>
+                                    <option value="<?php echo $sp['MaSP']; ?>" data-sltk="<?php echo $sp['SLTK']; ?>">
+                                        <?php echo htmlspecialchars($sp['TenSP']) . ' (Tồn: ' . $sp['SLTK'] . ')'; ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <input type="number" class="product-quantity" placeholder="Số lượng" min="1" required style="width: 100%; padding: 8px;">
+                        </div>
+                        <div>
+                            <button type="button" class="btn btn-delete" onclick="removeProductRow(this)" style="padding: 8px;">×</button>
+                        </div>
+                    </div>
+                </div>
                 
-                <input type="hidden" name="products" id="productsData">
-                <button type="submit" class="btn btn-add" onclick="return validateForm()">Lưu</button>
+                <button type="button" onclick="addProductRow()" class="btn btn-add" style="margin: 10px 0;">+ Thêm sản phẩm</button>
+                
+                <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+                    <input type="hidden" name="products" id="productsData">
+                    <button type="submit" class="btn btn-add" onclick="return validateForm()">Lưu phiếu xuất</button>
+                    <button type="button" class="btn btn-cancel" onclick="closeModal('addModal')">Hủy</button>
+                </div>
             </form>
         </div>
     </div>
@@ -458,24 +547,26 @@ function getTrangThaiDisplay($tinhTrang) {
             document.getElementById('modalTitle').innerText = 'Thêm Phiếu Xuất';
             document.getElementById('modalAction').value = 'add';
             document.getElementById('phieuForm').reset();
-            document.getElementById('MaPX').readOnly = false;
-            
-            // Ẩn phần thông tin chỉ đọc
-            document.getElementById('readonlyInfo').style.display = 'none';
             
             // Reset danh sách sản phẩm về 1 dòng
             document.getElementById('productsList').innerHTML = `
-                <div class="product-row" style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <select class="product-select" style="flex: 2;" required>
-                        <option value="">Chọn Sản Phẩm</option>
-                        <?php foreach ($sanPhams as $sp): ?>
-                            <option value="<?php echo $sp['MaSP']; ?>" data-sltk="<?php echo $sp['SLTK']; ?>">
-                                <?php echo htmlspecialchars($sp['TenSP']) . ' (Tồn: ' . $sp['SLTK'] . ')'; ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                    <input type="number" class="product-quantity" placeholder="Số lượng" min="1" style="flex: 1;" required>
-                    <button type="button" class="btn btn-delete" onclick="removeProductRow(this)" style="flex: 0;">Xóa</button>
+                <div class="product-row" style="display: grid; grid-template-columns: 2fr 1fr 40px; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <select class="product-select" required style="width: 100%; padding: 8px;">
+                            <option value="">Chọn sản phẩm</option>
+                            <?php foreach ($sanPhams as $sp): ?>
+                                <option value="<?php echo $sp['MaSP']; ?>" data-sltk="<?php echo $sp['SLTK']; ?>">
+                                    <?php echo htmlspecialchars($sp['TenSP']) . ' (Tồn: ' . $sp['SLTK'] . ')'; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <input type="number" class="product-quantity" placeholder="Số lượng" min="1" required style="width: 100%; padding: 8px;">
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-delete" onclick="removeProductRow(this)" style="padding: 8px;">×</button>
+                    </div>
                 </div>
             `;
             
@@ -623,18 +714,24 @@ function getTrangThaiDisplay($tinhTrang) {
             const productsList = document.getElementById('productsList');
             const newRow = document.createElement('div');
             newRow.className = 'product-row';
-            newRow.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+            newRow.style.cssText = 'display: grid; grid-template-columns: 2fr 1fr 40px; gap: 10px; margin-bottom: 10px;';
             newRow.innerHTML = `
-                <select class="product-select" style="flex: 2;" required>
-                    <option value="">Chọn Sản Phẩm</option>
-                    <?php foreach ($sanPhams as $sp): ?>
-                        <option value="<?php echo $sp['MaSP']; ?>" data-sltk="<?php echo $sp['SLTK']; ?>">
-                            <?php echo htmlspecialchars($sp['TenSP']) . ' (Tồn: ' . $sp['SLTK'] . ')'; ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-                <input type="number" class="product-quantity" placeholder="Số lượng" min="1" style="flex: 1;" required>
-                <button type="button" class="btn btn-delete" onclick="removeProductRow(this)" style="flex: 0;">Xóa</button>
+                <div>
+                    <select class="product-select" required style="width: 100%; padding: 8px;">
+                        <option value="">Chọn sản phẩm</option>
+                        <?php foreach ($sanPhams as $sp): ?>
+                            <option value="<?php echo $sp['MaSP']; ?>" data-sltk="<?php echo $sp['SLTK']; ?>">
+                                <?php echo htmlspecialchars($sp['TenSP']) . ' (Tồn: ' . $sp['SLTK'] . ')'; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <input type="number" class="product-quantity" placeholder="Số lượng" min="1" required style="width: 100%; padding: 8px;">
+                </div>
+                <div>
+                    <button type="button" class="btn btn-delete" onclick="removeProductRow(this)" style="padding: 8px;">×</button>
+                </div>
             `;
             productsList.appendChild(newRow);
         }
