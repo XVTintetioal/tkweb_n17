@@ -234,6 +234,21 @@ if ($_POST['action'] ?? '') {
             if ($phieu && $phieu['TinhTrang_PX'] === 'Có thay đổi') {
                 try {
                     $pdo->beginTransaction();
+                    
+                    // Kiểm tra tồn kho trước khi trừ
+                    foreach ($maCTPXs as $index => $maCTPX) {
+                        $slx_moi = $slx_mois[$index] ?? 0;
+                        
+                        $stmt_sp = $pdo->prepare("SELECT ct.MaSP, sp.SLTK FROM CHITIETPHIEUXUAT ct JOIN SANPHAM sp ON ct.MaSP = sp.MaSP WHERE ct.MaCTPX = ?");
+                        $stmt_sp->execute([$maCTPX]);
+                        $sp = $stmt_sp->fetch();
+                        
+                        if ($sp && $sp['SLTK'] < $slx_moi) {
+                            throw new Exception("Sản phẩm {$sp['MaSP']} không đủ tồn kho. Hiện tại: {$sp['SLTK']}, cần: {$slx_moi}");
+                        }
+                    }
+                    
+                    // Nếu đủ tồn kho, tiến hành cập nhật
                     foreach ($maCTPXs as $index => $maCTPX) {
                         $slx_moi = $slx_mois[$index] ?? 0;
                         $stmt = $pdo->prepare("UPDATE CHITIETPHIEUXUAT SET SLX_MOI = ? WHERE MaCTPX = ? AND MaPX = ?");
@@ -265,55 +280,72 @@ if ($_POST['action'] ?? '') {
             exit();
             
         } elseif ($action == 'update_status') {
-            // Cập nhật trạng thái (chỉ Quản lý mới được phép)
+            // Cập nhật trạng thái - chuyển thành AJAX
+            header('Content-Type: application/json');
+            
             if ($userRole != 'Quản lý') {
-                header("Location: exports.php?error=Bạn không có quyền cập nhật trạng thái");
+                echo json_encode(['success' => false, 'error' => 'Bạn không có quyền cập nhật trạng thái']);
                 exit();
             }
             
-            $maPX = $_POST['MaPX'];
-            $tinhTrangMoi = $_POST['TinhTrang'];
+            $maPX = $_POST['MaPX'] ?? '';
+            $tinhTrangMoi = $_POST['TinhTrang'] ?? '';
             
-            // Lấy trạng thái cũ
+            // Danh sách trạng thái hợp lệ
+            $validStatuses = ['Đang xử lý', 'Đã duyệt', 'Bị từ chối', 'Hoàn thành', 'Có thay đổi'];
+            $finalStatuses = ['Hoàn thành', 'Có thay đổi', 'Bị từ chối'];
+            
             $stmt = $pdo->prepare("SELECT TinhTrang_PX FROM PHIEUXUAT WHERE MaPX = ?");
             $stmt->execute([$maPX]);
-            $tinhTrangCu = $stmt->fetchColumn();
+            $currentStatus = $stmt->fetchColumn();
             
-            // Cập nhật trạng thái
-            $stmt = $pdo->prepare("UPDATE PHIEUXUAT SET TinhTrang_PX=? WHERE MaPX=?");
-            $stmt->execute([$tinhTrangMoi, $maPX]);
-            
-            // Nếu chuyển sang "Hoàn thành" hoặc "Có thay đổi", trừ tồn kho
-            if (($tinhTrangMoi == 'Hoàn thành' || $tinhTrangMoi == 'Có thay đổi') && 
-                ($tinhTrangCu != 'Hoàn thành' && $tinhTrangCu != 'Có thay đổi')) {
-                
-                // Lấy danh sách sản phẩm trong phiếu
-                $stmt = $pdo->prepare("SELECT MaSP, SLX FROM CHITIETPHIEUXUAT WHERE MaPX = ?");
-                $stmt->execute([$maPX]);
-                $chiTiet = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
-                // Trừ tồn kho cho từng sản phẩm
-                foreach ($chiTiet as $sp) {
-                    $stmt = $pdo->prepare("UPDATE SANPHAM SET SLTK = SLTK - ? WHERE MaSP = ?");
-                    $stmt->execute([$sp['SLX'], $sp['MaSP']]);
-                }
+            // Nếu trạng thái hiện tại là trạng thái cuối cùng, không cho phép đổi
+            if (in_array($currentStatus, $finalStatuses)) {
+                echo json_encode(['success' => false, 'error' => 'Phiếu xuất này đã được khóa và không thể thay đổi trạng thái']);
+                exit();
             }
             
-            // Nếu từ "Hoàn thành" hoặc "Có thay đổi" chuyển về trạng thái khác, cộng lại tồn kho
-            if (($tinhTrangCu == 'Hoàn thành' || $tinhTrangCu == 'Có thay đổi') && 
-                ($tinhTrangMoi != 'Hoàn thành' && $tinhTrangMoi != 'Có thay đổi')) {
-                
-                // Lấy danh sách sản phẩm trong phiếu
-                $stmt = $pdo->prepare("SELECT MaSP, SLX FROM CHITIETPHIEUXUAT WHERE MaPX = ?");
-                $stmt->execute([$maPX]);
-                $chiTiet = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
-                // Cộng lại tồn kho cho từng sản phẩm
-                foreach ($chiTiet as $sp) {
-                    $stmt = $pdo->prepare("UPDATE SANPHAM SET SLTK = SLTK + ? WHERE MaSP = ?");
-                    $stmt->execute([$sp['SLX'], $sp['MaSP']]);
+            if (in_array($tinhTrangMoi, $validStatuses)) {
+                try {
+                    $pdo->beginTransaction();
+                    
+                    // Lấy trạng thái cũ của phiếu xuất
+                    $stmt = $pdo->prepare("SELECT TinhTrang_PX FROM PHIEUXUAT WHERE MaPX = ?");
+                    $stmt->execute([$maPX]);
+                    $oldStatus = $stmt->fetchColumn();
+                    
+                    // Cập nhật trạng thái mới cho phiếu xuất
+                    $stmt = $pdo->prepare("UPDATE PHIEUXUAT SET TinhTrang_PX = ? WHERE MaPX = ?");
+                    $stmt->execute([$tinhTrangMoi, $maPX]);
+
+                    // Nếu chuyển sang trạng thái "Hoàn thành"
+                    if ($tinhTrangMoi == 'Hoàn thành' && !in_array($oldStatus, ['Hoàn thành', 'Có thay đổi'])) {
+                        // Cập nhật số lượng tồn kho cho từng sản phẩm trong phiếu xuất (trừ SLX gốc)
+                        $stmt = $pdo->prepare("
+                            UPDATE SANPHAM sp
+                            INNER JOIN CHITIETPHIEUXUAT ct ON sp.MaSP = ct.MaSP
+                            SET 
+                                sp.SLTK = sp.SLTK - ct.SLX,
+                                sp.TinhTrang = CASE 
+                                    WHEN (sp.SLTK - ct.SLX) > 0 THEN 'Còn hàng'
+                                    ELSE 'Hết hàng'
+                                END
+                            WHERE ct.MaPX = ?
+                        ");
+                        $stmt->execute([$maPX]);
+                    }
+                    
+                    $pdo->commit();
+                    echo json_encode(['success' => true, 'newStatus' => $tinhTrangMoi, 'needsAdjustment' => ($tinhTrangMoi == 'Có thay đổi')]);
+                    
+                } catch (Exception $e) {
+                    $pdo->rollBack();
+                    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
                 }
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Trạng thái không hợp lệ']);
             }
+            exit();
         }
         
         header("Location: exports.php");
@@ -1030,13 +1062,20 @@ function getTrangThaiDisplay($tinhTrang) {
                     method: 'POST',
                     body: formData
                 })
-                .then(response => {
-                    if (newStatus === 'Có thay đổi') {
-                        // Nếu chuyển sang "Có thay đổi", mở modal nhập số lượng mới
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
                         closeModal('statusModal');
-                        openAdjustmentModal(statusChangeMaPX);
+                        
+                        if (data.needsAdjustment) {
+                            alert(`Đã cập nhật trạng thái thành "${newStatus}". Vui lòng nhập số lượng mới cho từng sản phẩm.`);
+                            openAdjustmentModal(statusChangeMaPX);
+                        } else {
+                            alert(`Đã cập nhật trạng thái thành "${newStatus}"`);
+                            location.reload();
+                        }
                     } else {
-                        location.reload();
+                        alert('Lỗi: ' + (data.error || 'Không thể cập nhật trạng thái'));
                     }
                 })
                 .catch(error => {
