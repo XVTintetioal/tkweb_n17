@@ -197,6 +197,29 @@ if ($_POST['action'] ?? '') {
             $stmt = $pdo->prepare("DELETE FROM PHIEUXUAT WHERE MaPX=?");
             $stmt->execute([$maPX]);
             
+        } elseif ($action == 'edit_detail') {
+            // Sửa chi tiết phiếu xuất
+            $maPX = $_POST['MaPX'] ?? '';
+            $maCTPXs = $_POST['MaCTPX'] ?? [];
+            $maSPs = $_POST['MaSP'] ?? [];
+            $slxs = $_POST['SLX'] ?? [];
+            
+            // Kiểm tra trạng thái phiếu xuất - chỉ cho sửa khi "Đang xử lý"
+            $stmt = $pdo->prepare("SELECT TinhTrang_PX FROM PHIEUXUAT WHERE MaPX = ?");
+            $stmt->execute([$maPX]);
+            $phieu = $stmt->fetch();
+            
+            if ($phieu && $phieu['TinhTrang_PX'] === 'Đang xử lý') {
+                foreach ($maCTPXs as $index => $maCTPX) {
+                    $maSP = $maSPs[$index] ?? '';
+                    $slx = $slxs[$index] ?? '';
+                    if (!empty($maSP) && !empty($slx)) {
+                        $stmt = $pdo->prepare("UPDATE CHITIETPHIEUXUAT SET MaSP = ?, SLX = ? WHERE MaCTPX = ? AND MaPX = ?");
+                        $stmt->execute([$maSP, $slx, $maCTPX, $maPX]);
+                    }
+                }
+            }
+            
         } elseif ($action == 'adjustment') {
             // Xử lý nhập SLX_MOI và trừ khỏi SLTK
             header('Content-Type: application/json');
@@ -655,6 +678,40 @@ function getTrangThaiDisplay($tinhTrang) {
         </div>
     </div>
 
+    <!-- Modal sửa chi tiết phiếu xuất -->
+    <div id="editDetailModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('editDetailModal')">&times;</span>
+            <h2>Sửa Chi Tiết Phiếu Xuất</h2>
+            
+            <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div>
+                        <label>Mã Phiếu Xuất:</label>
+                        <input type="text" id="editMaPX" disabled style="width: 100%; padding: 8px; background-color: #e0e0e0;">
+                    </div>
+                    <div>
+                        <label>Ngày Xuất:</label>
+                        <input type="text" id="editNgayXuat" disabled style="width: 100%; padding: 8px; background-color: #e0e0e0;">
+                    </div>
+                    <div>
+                        <label>Cửa Hàng:</label>
+                        <input type="text" id="editTenCH" disabled style="width: 100%; padding: 8px; background-color: #e0e0e0;">
+                    </div>
+                    <div>
+                        <label>Tình Trạng:</label>
+                        <input type="text" id="editTinhTrang" disabled style="width: 100%; padding: 8px; background-color: #e0e0e0;">
+                    </div>
+                </div>
+            </div>
+
+            <h3>Chi Tiết Sản Phẩm</h3>
+            <div id="detailsList" style="max-height: 400px; overflow-y: auto;">
+                <!-- Sẽ được load bằng JavaScript -->
+            </div>
+        </div>
+    </div>
+
     <!-- Modal đổi trạng thái -->
     <div id="statusModal" class="modal">
         <div class="modal-content" style="max-width: 550px;">
@@ -874,7 +931,76 @@ function getTrangThaiDisplay($tinhTrang) {
         }
 
         function editExportDetail(maPX) {
-            // TODO: implement if needed
+            fetch(`exports.php?action=get_detail&maPX=${encodeURIComponent(maPX)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const phieu = data.data.phieu;
+                        const chiTiet = data.data.chiTiet;
+                        
+                        // Điền thông tin phiếu xuất (disabled)
+                        document.getElementById('editMaPX').value = phieu.MaPX;
+                        document.getElementById('editNgayXuat').value = new Date(phieu.NgayXuat).toLocaleDateString('vi-VN');
+                        document.getElementById('editTenCH').value = phieu.TenCH || 'N/A';
+                        document.getElementById('editTinhTrang').value = phieu.TinhTrang_PX;
+                        
+                        // Tạo form cho tất cả chi tiết sản phẩm
+                        const detailsList = document.getElementById('detailsList');
+                        detailsList.innerHTML = `
+                            <form method="POST" id="editDetailsForm">
+                                <input type="hidden" name="action" value="edit_detail">
+                                <input type="hidden" name="MaPX" value="${phieu.MaPX}">
+                                
+                                <div id="productsList" style="margin-bottom: 20px;">
+                                    ${chiTiet.map((detail, index) => `
+                                        <div style="margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+                                            <input type="hidden" name="MaCTPX[]" value="${detail.MaCTPX}">
+                                            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                                                <div>
+                                                    <label>Sản Phẩm:</label>
+                                                    <select name="MaSP[]" required style="width: 100%; padding: 10px;">
+                                                        <option value="">Chọn sản phẩm</option>
+                                                        <?php
+                                                        $products = $pdo->query("SELECT MaSP, TenSP FROM SANPHAM")->fetchAll();
+                                                        foreach ($products as $product) {
+                                                            echo "<option value='{$product['MaSP']}'>{$product['TenSP']}</option>";
+                                                        }
+                                                        ?>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label>Số Lượng:</label>
+                                                    <input type="number" name="SLX[]" min="1" value="${detail.SLX}" required style="width: 100%; padding: 10px;">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                
+                                <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+                                    <button type="submit" class="btn btn-add" style="padding: 10px 30px;">Lưu tất cả</button>
+                                    <button type="button" class="btn btn-cancel" onclick="closeModal('editDetailModal')" style="padding: 10px 30px;">Hủy</button>
+                                </div>
+                            </form>
+                        `;
+                        
+                        // Set giá trị cho các select và input
+                        chiTiet.forEach((detail, index) => {
+                            const selects = document.getElementsByName('MaSP[]');
+                            const inputs = document.getElementsByName('SLX[]');
+                            if (selects[index]) selects[index].value = detail.MaSP;
+                            if (inputs[index]) inputs[index].value = detail.SLX;
+                        });
+                        
+                        openModal('editDetailModal');
+                    } else {
+                        alert('Không thể tải dữ liệu');
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi:', error);
+                    alert('Không thể tải dữ liệu');
+                });
         }
 
         function deleteExport(maPX) {
