@@ -48,9 +48,9 @@ if (isset($_GET['action']) && $_GET['action'] == 'get_detail') {
             exit;
         }
 
-        // Lấy chi tiết sản phẩm
+        // Lấy chi tiết sản phẩm (thêm SLX_MOI)
         $stmt = $pdo->prepare("
-            SELECT ct.*, sp.TenSP, sp.TheLoai, sp.SLTK
+            SELECT ct.MaCTPX, ct.MaSP, ct.SLX, ct.SLX_MOI, sp.TenSP, sp.TheLoai, sp.SLTK
             FROM CHITIETPHIEUXUAT ct
             JOIN SANPHAM sp ON ct.MaSP = sp.MaSP
             WHERE ct.MaPX = ?
@@ -197,6 +197,50 @@ if ($_POST['action'] ?? '') {
             $stmt = $pdo->prepare("DELETE FROM PHIEUXUAT WHERE MaPX=?");
             $stmt->execute([$maPX]);
             
+        } elseif ($action == 'adjustment') {
+            // Xử lý nhập SLX_MOI và trừ khỏi SLTK
+            header('Content-Type: application/json');
+            $maPX = $_POST['MaPX'] ?? '';
+            $maCTPXs = $_POST['MaCTPX'] ?? [];
+            $slx_mois = $_POST['SLX_MOI'] ?? [];
+
+            $stmt = $pdo->prepare("SELECT TinhTrang_PX FROM PHIEUXUAT WHERE MaPX = ?");
+            $stmt->execute([$maPX]);
+            $phieu = $stmt->fetch();
+
+            if ($phieu && $phieu['TinhTrang_PX'] === 'Có thay đổi') {
+                try {
+                    $pdo->beginTransaction();
+                    foreach ($maCTPXs as $index => $maCTPX) {
+                        $slx_moi = $slx_mois[$index] ?? 0;
+                        $stmt = $pdo->prepare("UPDATE CHITIETPHIEUXUAT SET SLX_MOI = ? WHERE MaCTPX = ? AND MaPX = ?");
+                        $stmt->execute([$slx_moi, $maCTPX, $maPX]);
+
+                        // Trừ SLX_MOI khỏi SLTK (không phải SLX ban đầu)
+                        $stmt_sp = $pdo->prepare("SELECT MaSP FROM CHITIETPHIEUXUAT WHERE MaCTPX = ?");
+                        $stmt_sp->execute([$maCTPX]);
+                        $sp = $stmt_sp->fetch();
+                        if ($sp) {
+                            $stmt_update = $pdo->prepare("
+                                UPDATE SANPHAM 
+                                SET SLTK = SLTK - ?, 
+                                    TinhTrang = CASE WHEN SLTK - ? > 0 THEN 'Còn hàng' ELSE 'Hết hàng' END 
+                                WHERE MaSP = ?
+                            ");
+                            $stmt_update->execute([$slx_moi, $slx_moi, $sp['MaSP']]);
+                        }
+                    }
+                    $pdo->commit();
+                    echo json_encode(['success' => true]);
+                } catch (Exception $e) {
+                    $pdo->rollBack();
+                    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+                }
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Không hợp lệ']);
+            }
+            exit();
+            
         } elseif ($action == 'update_status') {
             // Cập nhật trạng thái (chỉ Quản lý mới được phép)
             if ($userRole != 'Quản lý') {
@@ -263,16 +307,57 @@ if ($_POST['action'] ?? '') {
 //  LẤY DANH SÁCH PHIẾU XUẤT
 // ============================
 $search = $_GET['search'] ?? '';
-$where = $search ? "WHERE px.MaPX LIKE '%$search%' OR ch.TenCH LIKE '%$search%'" : '';
+$where = $search ? "WHERE px.MaPX LIKE '%$search%' OR ch.TenCH LIKE '%$search%' OR sp.TenSP LIKE '%$search%'" : '';
 $stmt = $pdo->query("
-    SELECT px.*, ch.TenCH, tk.TenTK 
+    SELECT 
+        px.MaPX,
+        px.NgayXuat,
+        px.TinhTrang_PX,
+        ch.MaCH,
+        ch.TenCH,
+        tk.TenTK,
+        tk.MaTK,
+        sp.TenSP,
+        ct.SLX,
+        ct.SLX_MOI,
+        ct.MaCTPX,
+        ct.MaSP
     FROM PHIEUXUAT px
     LEFT JOIN CUAHANG ch ON px.MaCH = ch.MaCH
     LEFT JOIN TAIKHOAN tk ON px.MaTK = tk.MaTK
+    LEFT JOIN CHITIETPHIEUXUAT ct ON px.MaPX = ct.MaPX
+    LEFT JOIN SANPHAM sp ON ct.MaSP = sp.MaSP
     $where
-    ORDER BY px.NgayXuat DESC, px.MaPX DESC
+    ORDER BY px.NgayXuat DESC, px.MaPX, sp.TenSP
 ");
-$phieuXuats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$exports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Nhóm dữ liệu theo phiếu xuất
+$groupedExports = [];
+foreach ($exports as $row) {
+    if (!isset($groupedExports[$row['MaPX']])) {
+        $groupedExports[$row['MaPX']] = [
+            'info' => [
+                'MaPX' => $row['MaPX'],
+                'NgayXuat' => $row['NgayXuat'],
+                'TenCH' => $row['TenCH'],
+                'TenTK' => $row['TenTK'],
+                'MaTK' => $row['MaTK'],
+                'TinhTrang_PX' => $row['TinhTrang_PX']
+            ],
+            'details' => []
+        ];
+    }
+    if ($row['TenSP']) {  // Chỉ thêm vào details nếu có sản phẩm
+        $groupedExports[$row['MaPX']]['details'][] = [
+            'TenSP' => $row['TenSP'],
+            'SLX' => $row['SLX'],
+            'SLX_MOI' => $row['SLX_MOI'] ?? null,
+            'MaCTPX' => $row['MaCTPX'],
+            'MaSP' => $row['MaSP']
+        ];
+    }
+}
 
 // Lấy danh sách cửa hàng cho dropdown
 $stmtCH = $pdo->query("SELECT MaCH, TenCH FROM CUAHANG ORDER BY TenCH");
@@ -384,38 +469,88 @@ function getTrangThaiDisplay($tinhTrang) {
             <table>
                 <thead>
                     <tr>
-                        <th>Mã Phiếu</th>
-                        <th>Ngày Xuất</th>
-                        <th>Cửa Hàng</th>
-                        <th>Người Lập</th>
-                        <th>Trạng Thái</th>
-                        <th class="actions-column">Hành Động</th>
+                        <th style="width: 100px">Mã PX</th>
+                        <th style="width: 120px">Ngày Xuất</th>
+                        <th style="width: 150px">Cửa Hàng</th>
+                        <th style="width: 150px">Người Xuất</th>
+                        <th>Sản Phẩm</th>
+                        <th style="width: 100px">Số Lượng</th>
+                        <th style="width: 120px">Số lượng mới</th>
+                        <th style="width: 120px">Tình Trạng</th>
+                        <th class="actions-column">Thao Tác</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($phieuXuats as $phieu): ?>
-                        <tr>
-                            <td><?php echo htmlspecialchars($phieu['MaPX']); ?></td>
-                            <td><?php echo date('d/m/Y', strtotime($phieu['NgayXuat'])); ?></td>
-                            <td><?php echo htmlspecialchars($phieu['TenCH'] ?? 'N/A'); ?></td>
-                            <td><?php echo htmlspecialchars($phieu['TenTK'] ?? 'N/A'); ?></td>
-                            <td><?php echo htmlspecialchars($phieu['TinhTrang_PX']); ?></td>
-                            <td class="actions-column">
-                                <?php 
-                                $canEdit = ($phieu['TinhTrang_PX'] == 'Đang xử lý') && 
-                                          ($userRole == 'Quản lý' || $phieu['MaTK'] == $userId);
-                                $canDelete = ($phieu['TinhTrang_PX'] == 'Đang xử lý') && 
-                                            ($userRole == 'Quản lý' || $phieu['MaTK'] == $userId);
-                                ?>
-                                
-                                <button class="btn btn-status" 
-                                        onclick="viewDetail('<?php echo $phieu['MaPX']; ?>', <?php echo $canEdit ? 'true' : 'false'; ?>, <?php echo $canDelete ? 'true' : 'false'; ?>)">Xem Chi Tiết</button>
-                                
-                                <?php if ($userRole == 'Quản lý'): ?>
-                                    <button class="btn btn-add" onclick="openStatusModal('<?php echo $phieu['MaPX']; ?>', '<?php echo $phieu['TinhTrang_PX']; ?>')">Cập Nhật TT</button>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
+                    <?php 
+                    $finalStatuses = ['Hoàn thành', 'Có thay đổi', 'Bị từ chối'];
+                    $mutableStatuses = ['Đang xử lý', 'Đã duyệt'];
+                    ?>
+                    <?php foreach ($groupedExports as $maPX => $export): ?>
+                        <?php 
+                        $rowspan = max(1, count($export['details']));
+                        $canEdit = in_array($export['info']['TinhTrang_PX'], $mutableStatuses) && 
+                                  ($userRole == 'Quản lý' || $export['info']['MaTK'] == $userId);
+                        $isLocked = in_array($export['info']['TinhTrang_PX'], $finalStatuses);
+                        ?>
+                        <?php if (empty($export['details'])): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($export['info']['MaPX']); ?></td>
+                                <td><?php echo date('d/m/Y', strtotime($export['info']['NgayXuat'])); ?></td>
+                                <td><?php echo htmlspecialchars($export['info']['TenCH']); ?></td>
+                                <td><?php echo htmlspecialchars($export['info']['TenTK']); ?></td>
+                                <td><em>Chưa có sản phẩm</em></td>
+                                <td><em>0</em></td>
+                                <td><em>-</em></td>
+                                <td><?php echo htmlspecialchars($export['info']['TinhTrang_PX']); ?></td>
+                                <td class="actions-column">
+                                    <?php if ($canEdit): ?>
+                                        <button class="btn btn-edit" onclick="editExport('<?php echo $export['info']['MaPX']; ?>')">Sửa</button>
+                                    <?php else: ?>
+                                        <button class="btn btn-edit" disabled title="Chỉ sửa được khi trạng thái là 'Đang xử lý'">Sửa</button>
+                                    <?php endif; ?>
+                                    <button class="btn btn-delete" onclick="deleteExport('<?php echo $export['info']['MaPX']; ?>')">Xóa</button>
+                                    <?php if ($userRole == 'Quản lý'): ?>
+                                        <?php if ($isLocked): ?>
+                                            <button class="btn btn-status" disabled title="Phiếu xuất này đã bị khóa">Đổi trạng thái</button>
+                                        <?php else: ?>
+                                            <button class="btn btn-status" onclick="changeStatus('<?php echo $export['info']['MaPX']; ?>')">Đổi trạng thái</button>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php else: ?>
+                            <?php foreach ($export['details'] as $index => $detail): ?>
+                                <tr>
+                                    <?php if ($index === 0): ?>
+                                        <td rowspan="<?php echo $rowspan; ?>"><?php echo htmlspecialchars($export['info']['MaPX']); ?></td>
+                                        <td rowspan="<?php echo $rowspan; ?>"><?php echo date('d/m/Y', strtotime($export['info']['NgayXuat'])); ?></td>
+                                        <td rowspan="<?php echo $rowspan; ?>"><?php echo htmlspecialchars($export['info']['TenCH']); ?></td>
+                                        <td rowspan="<?php echo $rowspan; ?>"><?php echo htmlspecialchars($export['info']['TenTK']); ?></td>
+                                    <?php endif; ?>
+                                    <td><?php echo htmlspecialchars($detail['TenSP']); ?></td>
+                                    <td><?php echo htmlspecialchars($detail['SLX']); ?> cái</td>
+                                    <td><?php echo ($detail['SLX_MOI'] !== null) ? $detail['SLX_MOI'] . ' cái' : (($export['info']['TinhTrang_PX'] === 'Có thay đổi') ? 'Chưa cập nhật' : '-'); ?></td>
+                                    <?php if ($index === 0): ?>
+                                        <td rowspan="<?php echo $rowspan; ?>"><?php echo htmlspecialchars($export['info']['TinhTrang_PX']); ?></td>
+                                        <td rowspan="<?php echo $rowspan; ?>" class="actions-column">
+                                            <?php if ($canEdit): ?>
+                                                <button class="btn btn-edit" onclick="editExportDetail('<?php echo $export['info']['MaPX']; ?>')">Sửa</button>
+                                            <?php else: ?>
+                                                <button class="btn btn-edit" disabled title="Chỉ sửa được khi trạng thái là 'Đang xử lý'">Sửa</button>
+                                            <?php endif; ?>
+                                            <button class="btn btn-delete" onclick="deleteExport('<?php echo $export['info']['MaPX']; ?>')">Xóa</button>
+                                            <?php if ($userRole == 'Quản lý'): ?>
+                                                <?php if ($isLocked): ?>
+                                                    <button class="btn btn-status" disabled title="Phiếu xuất này đã bị khóa">Đổi trạng thái</button>
+                                                <?php else: ?>
+                                                    <button class="btn btn-status" onclick="changeStatus('<?php echo $export['info']['MaPX']; ?>')">Đổi trạng thái</button>
+                                                <?php endif; ?>
+                                            <?php endif; ?>
+                                        </td>
+                                    <?php endif; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     <?php endforeach; ?>
                 </tbody>
             </table>
@@ -520,24 +655,52 @@ function getTrangThaiDisplay($tinhTrang) {
         </div>
     </div>
 
-    <!-- Modal Cập Nhật Trạng Thái -->
+    <!-- Modal đổi trạng thái -->
     <div id="statusModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content" style="max-width: 550px;">
             <span class="close" onclick="closeModal('statusModal')">&times;</span>
-            <h2>Cập Nhật Trạng Thái</h2>
-            <form method="POST">
-                <input type="hidden" name="action" value="update_status">
-                <input type="hidden" name="MaPX" id="statusMaPX">
-                <select name="TinhTrang" id="statusTinhTrang" required>
-                    <option value="">Chọn Trạng Thái</option>
-                    <option value="Đang xử lý">Đang xử lý</option>
-                    <option value="Bị từ chối">Bị từ chối</option>
-                    <option value="Đã duyệt">Đã duyệt</option>
-                    <option value="Hoàn thành">Hoàn thành</option>
-                    <option value="Có thay đổi">Có thay đổi</option>
-                </select>
-                <button type="submit" class="btn btn-add">Cập Nhật</button>
-            </form>
+            <h2 style="color: #1976d2; margin-bottom: 10px; font-size: 24px;">Đổi Trạng Thái Phiếu Xuất</h2>
+            <p id="statusMaPX" style="margin-bottom: 25px; font-weight: 600; color: #ff9800; font-size: 16px; padding: 10px; background-color: #fff3e0; border-radius: 5px; border-left: 4px solid #ff9800;"></p>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <button class="status-btn" onclick="updateStatus('Đang xử lý')" style="background-color: #ff9800; padding: 16px; font-size: 15px; font-weight: 600; color: white; border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'; this.style.transform='translateY(0)';">
+                    ⏳ Đang xử lý
+                </button>
+                
+                <button class="status-btn" onclick="updateStatus('Đã duyệt')" style="background-color: #4caf50; padding: 16px; font-size: 15px; font-weight: 600; color: white; border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'; this.style.transform='translateY(0)';">
+                    ✓ Đã duyệt
+                </button>
+                
+                <button class="status-btn" onclick="updateStatus('Bị từ chối')" style="background-color: #f44336; padding: 16px; font-size: 15px; font-weight: 600; color: white; border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'; this.style.transform='translateY(0)';"> 
+                    ✗ Bị từ chối
+                </button>
+                
+                <button class="status-btn" onclick="updateStatus('Hoàn thành')" style="background-color: #2196f3; padding: 16px; font-size: 15px; font-weight: 600; color: white; border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'; this.style.transform='translateY(0)';">
+                    ✓ Hoàn thành
+                </button>
+                
+                <button class="status-btn" onclick="updateStatus('Có thay đổi')" style="background-color: #ff6f00; padding: 16px; font-size: 15px; font-weight: 600; color: white; border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'; this.style.transform='translateY(0)';">
+                    ⚠ Có thay đổi
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal nhập số lượng mới khi trạng thái "Có thay đổi" -->
+    <div id="adjustmentModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('adjustmentModal')">&times;</span>
+            <h2>Nhập Số Lượng Mới</h2>
+            <p id="adjustmentMaPX" style="margin-bottom: 20px; font-weight: 600; color: #ff9800;"></p>
+            
+            <div id="adjustmentDetails" style="max-height: 400px; overflow-y: auto;">
+                <!-- Sẽ được load bằng JavaScript -->
+            </div>
+            
+            <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+                <button type="button" id="saveAdjustmentBtn" onclick="saveAdjustment()" class="btn btn-add">Lưu và Cập Nhật Kho</button>
+                <button type="button" class="btn btn-cancel" onclick="closeModal('adjustmentModal')">Hủy</button>
+            </div>
         </div>
     </div>
 
@@ -704,10 +867,116 @@ function getTrangThaiDisplay($tinhTrang) {
                 });
         }
 
-        function openStatusModal(maPX, currentStatus) {
-            document.getElementById('statusMaPX').value = maPX;
-            document.getElementById('statusTinhTrang').value = currentStatus;
+        let statusChangeMaPX = null;
+
+        function editExport(maPX) {
+            // TODO: implement if needed
+        }
+
+        function editExportDetail(maPX) {
+            // TODO: implement if needed
+        }
+
+        function deleteExport(maPX) {
+            if (confirm('Bạn có chắc chắn muốn xóa phiếu xuất này?')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaPX" value="${maPX}">`;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        function changeStatus(maPX) {
+            statusChangeMaPX = maPX;
+            document.getElementById('statusMaPX').innerText = `Phiếu xuất: ${maPX}`;
             openModal('statusModal');
+        }
+
+        function updateStatus(newStatus) {
+            if (statusChangeMaPX) {
+                const formData = new FormData();
+                formData.append('action', 'update_status');
+                formData.append('MaPX', statusChangeMaPX);
+                formData.append('TinhTrang', newStatus);
+
+                fetch('exports.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (newStatus === 'Có thay đổi') {
+                        // Nếu chuyển sang "Có thay đổi", mở modal nhập số lượng mới
+                        closeModal('statusModal');
+                        openAdjustmentModal(statusChangeMaPX);
+                    } else {
+                        location.reload();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Có lỗi xảy ra');
+                });
+            }
+        }
+
+        function openAdjustmentModal(maPX) {
+            statusChangeMaPX = maPX;
+            document.getElementById('adjustmentMaPX').innerText = `Phiếu xuất: ${maPX} - Nhập số lượng mới cho từng sản phẩm`;
+            
+            fetch(`exports.php?action=get_detail&maPX=${encodeURIComponent(maPX)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const adjustmentDetails = document.getElementById('adjustmentDetails');
+                        adjustmentDetails.innerHTML = `
+                            <form id="adjustmentForm">
+                                <input type="hidden" name="action" value="adjustment">
+                                <input type="hidden" name="MaPX" value="${maPX}">
+                                ${data.data.chiTiet.map((detail, index) => `
+                                    <div style="margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+                                        <h4>${detail.TenSP}</h4>
+                                        <p>Số lượng ban đầu: ${detail.SLX} cái</p>
+                                        <label>Số lượng mới (sẽ trừ khỏi tồn kho):</label>
+                                        <input type="number" name="SLX_MOI[]" min="0" value="${detail.SLX_MOI || ''}" required style="width: 100%; padding: 8px; margin-bottom: 10px;">
+                                        <input type="hidden" name="MaCTPX[]" value="${detail.MaCTPX}">
+                                    </div>
+                                `).join('')}
+                            </form>
+                        `;
+                        openModal('adjustmentModal');
+                    } else {
+                        alert('Không thể tải chi tiết');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Không thể tải chi tiết');
+                });
+        }
+
+        function saveAdjustment() {
+            if (statusChangeMaPX) {
+                const formData = new FormData(document.getElementById('adjustmentForm'));
+                fetch('exports.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Đã lưu số lượng mới và cập nhật tồn kho thành công!');
+                        closeModal('adjustmentModal');
+                        location.reload();
+                    } else {
+                        alert('Lỗi khi lưu: ' + (data.error || 'Không xác định'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Không thể lưu');
+                });
+            }
         }
 
         function addProductRow() {
@@ -783,6 +1052,14 @@ function getTrangThaiDisplay($tinhTrang) {
                 'Có thay đổi': 'Có thay đổi'
             };
             return mapping[tinhTrang] || tinhTrang;
+        }
+
+        // Hàm giả định từ script.js (nếu chưa có)
+        function openModal(modalId) {
+            document.getElementById(modalId).style.display = 'flex';
+        }
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
         }
     </script>
 </body>
