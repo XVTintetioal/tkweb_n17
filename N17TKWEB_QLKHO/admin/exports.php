@@ -351,7 +351,7 @@ $stmt = $pdo->query("
     LEFT JOIN CHITIETPHIEUXUAT ct ON px.MaPX = ct.MaPX
     LEFT JOIN SANPHAM sp ON ct.MaSP = sp.MaSP
     $where
-    ORDER BY px.NgayXuat DESC, px.MaPX, sp.TenSP
+    ORDER BY px.MaPX DESC, sp.TenSP
 ");
 $exports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
