@@ -53,12 +53,14 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
     } elseif ($action == 'delete') {
         $maPN = $_POST['MaPN'] ?? '';
         
-        // Kiểm tra trạng thái - chỉ cho xóa khi "Đang xử lý"
+        // Kiểm tra trạng thái - Không cho xóa khi "Hoàn thành" hoặc "Có thay đổi"
         $stmt = $pdo->prepare("SELECT TinhTrang_PN FROM PHIEUNHAP WHERE MaPN = ?");
         $stmt->execute([$maPN]);
         $tinhTrang = $stmt->fetchColumn();
         
-        if ($tinhTrang == 'Đang xử lý') {
+        if ($tinhTrang == 'Hoàn thành' || $tinhTrang == 'Có thay đổi') {
+            // Không xóa - không làm gì
+        } else {
             // Xóa chi tiết trước
             $stmt = $pdo->prepare("DELETE FROM CHITIETPHIEUNHAP WHERE MaPN=?");
             $stmt->execute([$maPN]);
@@ -269,7 +271,7 @@ $stmt = $pdo->query("
     LEFT JOIN CHITIETPHIEUNHAP ct ON p.MaPN = ct.MaPN
     LEFT JOIN SANPHAM sp ON ct.MaSP = sp.MaSP
     $where 
-    ORDER BY p.NgayNhap DESC, p.MaPN, sp.TenSP
+    ORDER BY p.MaPN DESC, sp.TenSP
 ");
 $imports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -369,14 +371,14 @@ foreach ($imports as $row) {
     <div class="container">
         <h1 style="text-align: center; margin-bottom: 20px; color: #d4af37;">Quản Lý Phiếu Nhập Kho</h1>
         
-        <!-- Thanh tìm kiếm -->
-        <form method="GET" class="search-form">
-            <input type="text" class="search-box" placeholder="Tìm kiếm phiếu nhập..." name="search" value="<?php echo htmlspecialchars($search); ?>">
-            <button type="submit" class="btn btn-search">Tìm</button>
-        </form>
-        
-        <!-- Nút thêm -->
-        <button class="btn btn-add" onclick="openModal('addModal')">Thêm Phiếu Nhập</button>
+        <!-- Thanh tìm kiếm và nút thêm -->
+        <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
+            <form method="GET" style="display: flex; gap: 10px; flex: 1;">
+                <input type="text" class="search-box" placeholder="Tìm kiếm phiếu nhập..." name="search" value="<?php echo htmlspecialchars($search); ?>" style="flex: 1;">
+                <button type="submit" class="btn btn-search">Tìm</button>
+            </form>
+            <button class="btn btn-add" onclick="openModal('addModal')">Thêm Phiếu Nhập</button>
+        </div>
 
         <div class="table-container">
             <table>
@@ -479,11 +481,11 @@ foreach ($imports as $row) {
                                style="width: 100%; padding: 8px; background-color: #f0f0f0;">
                     </div>
                     <div>
-                        <label>Ngày Nhập:</label>
+                        <label>Ngày Nhập: <span style="color: red;">*</span></label>
                         <input type="date" name="NgayNhap" required style="width: 100%; padding: 8px;">
                     </div>
                     <div>
-                        <label>Người Nhập:</label>
+                        <label>Người Nhập: <span style="color: red;">*</span></label>
                         <select name="MaTK" required style="width: 100%; padding: 8px;">
                             <option value="">Chọn người nhập</option>
                             <?php
@@ -495,7 +497,7 @@ foreach ($imports as $row) {
                         </select>
                     </div>
                     <div>
-                        <label>Tình Trạng:</label>
+                        <label>Tình Trạng: <span style="color: red;">*</span></label>
                         <select name="TinhTrang_PN" required style="width: 100%; padding: 8px;">
                             <option value="Đang xử lý" selected>Đang xử lý</option>
                             <option value="Đã duyệt">Đã duyệt</option>
@@ -510,6 +512,7 @@ foreach ($imports as $row) {
                 <div id="productEntries">
                     <div class="product-entry" style="display: grid; grid-template-columns: 2fr 1fr 40px; gap: 10px; margin-bottom: 10px;">
                         <div>
+                            <label>Sản phẩm: <span style="color: red;">*</span></label>
                             <select name="MaSP[]" required style="width: 100%; padding: 8px;">
                                 <option value="">Chọn sản phẩm</option>
                                 <?php
@@ -521,6 +524,7 @@ foreach ($imports as $row) {
                             </select>
                         </div>
                         <div>
+                            <label>Số lượng: <span style="color: red;">*</span></label>
                             <input type="number" name="SLN[]" min="1" placeholder="Số lượng" required style="width: 100%; padding: 8px;">
                         </div>
                         <div>

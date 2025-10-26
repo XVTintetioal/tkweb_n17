@@ -10,6 +10,13 @@ if (!isset($_SESSION['user_id'])) {
 
 $userRole = $_SESSION['role'] ?? 'Nhân viên';
 
+// Hàm tạo mã sản phẩm tự động
+function generateMaSP($pdo) {
+    $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(MaSP, 3) AS UNSIGNED)) as max_id FROM SANPHAM");
+    $result = $stmt->fetch();
+    $next_id = ($result['max_id'] ?? 0) + 1;
+    return 'SP' . str_pad($next_id, 5, '0', STR_PAD_LEFT);
+}
 
 // ============================
 //  XỬ LÝ AJAX: LẤY TỒN KHO
@@ -54,31 +61,50 @@ if (isset($_GET['action']) && $_GET['action'] == 'get_stock') {
 // ============================
 //  XỬ LÝ THÊM / SỬA / XÓA
 // ============================
+$message = '';
+$messageType = '';
+
 if ($_POST['action'] ?? '') {
     $action = $_POST['action'];
-    if ($action == 'add' || $action == 'edit') {
-        $maSP = $_POST['MaSP'] ?? '';
-        $tenSP = $_POST['TenSP'];
-        $theLoai = $_POST['TheLoai'];
-        $mauSP = $_POST['MauSP'];
-        $tinhTrang = $_POST['TinhTrang'];
-        $sltk = $_POST['SLTK'];
-        $giaBan = $_POST['GiaBan'];
+    
+    try {
+        if ($action == 'add' || $action == 'edit') {
+            $maSP = $_POST['MaSP'] ?? '';
+            $tenSP = trim($_POST['TenSP'] ?? '');
+            $theLoai = $_POST['TheLoai'] ?? '';
+            $mauSP = trim($_POST['MauSP'] ?? '');
+            $tinhTrang = $_POST['TinhTrang'] ?? '';
+            $sltk = $_POST['SLTK'] ?? '';
+            $giaBan = $_POST['GiaBan'] ?? '';
+            
+            // Validate
+            if (empty($tenSP) || empty($theLoai) || empty($mauSP) || empty($tinhTrang) || $sltk === '' || empty($giaBan)) {
+                throw new Exception('Vui lòng điền đầy đủ tất cả các trường!');
+            }
 
-        if ($action == 'add') {
-            $stmt = $pdo->prepare("INSERT INTO SANPHAM (MaSP, TenSP, TheLoai, MauSP, TinhTrang, SLTK, GiaBan) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$maSP, $tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan]);
-        } else {
-            $stmt = $pdo->prepare("UPDATE SANPHAM SET TenSP=?, TheLoai=?, MauSP=?, TinhTrang=?, SLTK=?, GiaBan=? WHERE MaSP=?");
-            $stmt->execute([$tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan, $maSP]);
+            if ($action == 'add') {
+                $maSP = generateMaSP($pdo);
+                $stmt = $pdo->prepare("INSERT INTO SANPHAM (MaSP, TenSP, TheLoai, MauSP, TinhTrang, SLTK, GiaBan) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$maSP, $tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan]);
+                $message = 'Thêm sản phẩm thành công!';
+                $messageType = 'success';
+            } else {
+                $stmt = $pdo->prepare("UPDATE SANPHAM SET TenSP=?, TheLoai=?, MauSP=?, TinhTrang=?, SLTK=?, GiaBan=? WHERE MaSP=?");
+                $stmt->execute([$tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan, $maSP]);
+                $message = 'Cập nhật sản phẩm thành công!';
+                $messageType = 'success';
+            }
+        } elseif ($action == 'delete') {
+            $maSP = $_POST['MaSP'];
+            $stmt = $pdo->prepare("DELETE FROM SANPHAM WHERE MaSP=?");
+            $stmt->execute([$maSP]);
+            $message = 'Xóa sản phẩm thành công!';
+            $messageType = 'success';
         }
-    } elseif ($action == 'delete') {
-        $maSP = $_POST['MaSP'];
-        $stmt = $pdo->prepare("DELETE FROM SANPHAM WHERE MaSP=?");
-        $stmt->execute([$maSP]);
+    } catch (Exception $e) {
+        $message = 'Lỗi: ' . $e->getMessage();
+        $messageType = 'error';
     }
-    header("Location: products.php"); // Reload trang
-    exit();
 }
 
 
@@ -124,14 +150,21 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="container">
         <h1 style="text-align: center; margin-bottom: 20px; color: #d4af37;">Quản Lý Sản Phẩm</h1>
         
-        <!-- Thanh tìm kiếm -->
-        <form method="GET" class="search-form" style="display: inline;">
-            <input type="text" class="search-box" placeholder="Tìm kiếm sản phẩm..." name="search" value="<?php echo htmlspecialchars($search); ?>">
-            <button type="submit" class="btn btn-search">Tìm</button>
-        </form>
+        <!-- Thông báo -->
+        <?php if ($message): ?>
+            <div class="message <?php echo $messageType; ?>" style="margin-bottom: 20px; padding: 12px 20px; border-radius: 5px; text-align: center; font-weight: 500; <?php echo $messageType == 'success' ? 'background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;' : 'background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'; ?>">
+                <?php echo htmlspecialchars($message); ?>
+            </div>
+        <?php endif; ?>
         
-        <!-- Nút thêm -->
-        <button class="btn btn-add" onclick="openModal('addModal')">Thêm Sản Phẩm</button>
+        <!-- Thanh tìm kiếm và nút thêm -->
+        <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
+            <form method="GET" style="display: flex; gap: 10px; flex: 1;">
+                <input type="text" class="search-box" placeholder="Tìm kiếm sản phẩm..." name="search" value="<?php echo htmlspecialchars($search); ?>" style="flex: 1;">
+                <button type="submit" class="btn btn-search">Tìm</button>
+            </form>
+            <button class="btn btn-add" onclick="openModal('addModal')">Thêm Sản Phẩm</button>
+        </div>
 
         <div class="table-container">
             <table>
@@ -176,23 +209,39 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <h2 id="modalTitle">Thêm Sản Phẩm</h2>
             <form method="POST">
                 <input type="hidden" name="action" id="modalAction" value="add">
-                <input type="text" name="MaSP" placeholder="Mã SP" required>
-                <input type="text" name="TenSP" placeholder="Tên SP" required>
-                <select name="TheLoai" required>
-                    <option value="">Chọn Thể Loại</option>
+                <input type="hidden" name="MaSP" id="MaSP">
+                
+                <label>Mã Sản Phẩm:</label>
+                <input type="text" id="displayMaSP" value="<?php echo generateMaSP($pdo); ?>" disabled style="background-color: #f0f0f0;">
+                
+                <label>Tên Sản Phẩm: <span style="color: red;">*</span></label>
+                <input type="text" name="TenSP" id="TenSP" placeholder="Nhập tên sản phẩm" required>
+                
+                <label>Thể Loại: <span style="color: red;">*</span></label>
+                <select name="TheLoai" id="TheLoai" required>
+                    <option value="">Chọn thể loại</option>
                     <option value="Vòng tay">Vòng tay</option>
                     <option value="Vòng cổ">Vòng cổ</option>
                     <option value="Khuyên tai">Khuyên tai</option>
                     <option value="Nhẫn">Nhẫn</option>
                 </select>
-                <input type="text" name="MauSP" placeholder="Màu SP">
-                <select name="TinhTrang" required>
+                
+                <label>Màu Sản Phẩm: <span style="color: red;">*</span></label>
+                <input type="text" name="MauSP" id="MauSP" placeholder="Nhập màu sản phẩm" required>
+                
+                <label>Tình Trạng: <span style="color: red;">*</span></label>
+                <select name="TinhTrang" id="TinhTrang" required>
                     <option value="Còn hàng">Còn hàng</option>
                     <option value="Hết hàng">Hết hàng</option>
                     <option value="Ngừng kinh doanh">Ngừng kinh doanh</option>
                 </select>
-                <input type="number" name="SLTK" placeholder="Số Lượng Tồn Kho" min="0" required>
-                <input type="number" name="GiaBan" placeholder="Giá Bán" step="0.01" min="0" required>
+                
+                <label>Số Lượng Tồn Kho: <span style="color: red;">*</span></label>
+                <input type="number" name="SLTK" id="SLTK" placeholder="Nhập số lượng" min="0" required>
+                
+                <label>Giá Bán: <span style="color: red;">*</span></label>
+                <input type="number" name="GiaBan" id="GiaBan" placeholder="Nhập giá bán" step="0.01" min="0" required>
+                
                 <button type="submit" class="btn btn-add">Lưu</button>
             </form>
         </div>
@@ -221,6 +270,26 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 document.body.appendChild(form);
                 form.submit();
             }
+        }
+
+        function openModal(modalId) {
+            if (modalId === 'addModal') {
+                document.getElementById('modalTitle').innerText = 'Thêm Sản Phẩm';
+                document.getElementById('modalAction').value = 'add';
+                document.getElementById('MaSP').value = '';
+                document.getElementById('displayMaSP').value = '<?php echo generateMaSP($pdo); ?>';
+                document.getElementById('TenSP').value = '';
+                document.getElementById('TheLoai').value = '';
+                document.getElementById('MauSP').value = '';
+                document.getElementById('TinhTrang').value = 'Còn hàng';
+                document.getElementById('SLTK').value = '';
+                document.getElementById('GiaBan').value = '';
+            }
+            document.getElementById(modalId).style.display = 'flex';
+        }
+        
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
         }
 
         function viewStock(maSP) {

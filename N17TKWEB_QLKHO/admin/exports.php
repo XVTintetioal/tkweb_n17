@@ -639,11 +639,11 @@ function getTrangThaiDisplay($tinhTrang) {
                                style="width: 100%; padding: 8px; background-color: #f0f0f0;">
                     </div>
                     <div>
-                        <label>Ngày Xuất:</label>
+                        <label>Ngày Xuất: <span style="color: red;">*</span></label>
                         <input type="date" name="NgayXuat" id="NgayXuat" required style="width: 100%; padding: 8px;">
                     </div>
                     <div>
-                        <label>Cửa Hàng:</label>
+                        <label>Cửa Hàng: <span style="color: red;">*</span></label>
                         <select name="MaCH" id="MaCH" required style="width: 100%; padding: 8px;">
                             <option value="">Chọn cửa hàng</option>
                             <?php foreach ($cuaHangs as $ch): ?>
@@ -652,7 +652,7 @@ function getTrangThaiDisplay($tinhTrang) {
                         </select>
                     </div>
                     <div>
-                        <label>Người Xuất:</label>
+                        <label>Người Xuất: <span style="color: red;">*</span></label>
                         <select name="MaTK" id="MaTK" required style="width: 100%; padding: 8px;">
                             <option value="">Chọn người xuất</option>
                             <?php
@@ -665,7 +665,7 @@ function getTrangThaiDisplay($tinhTrang) {
                         </select>
                     </div>
                     <div style="grid-column: 1 / -1;">
-                        <label>Tình Trạng:</label>
+                        <label>Tình Trạng: <span style="color: red;">*</span></label>
                         <select name="TinhTrang_PX" id="TinhTrang_PX" required style="width: 100%; padding: 8px;">
                             <option value="Đang xử lý" selected>Đang xử lý</option>
                             <option value="Đã duyệt">Đã duyệt</option>
@@ -680,6 +680,7 @@ function getTrangThaiDisplay($tinhTrang) {
                 <div id="productsList">
                     <div class="product-row" style="display: grid; grid-template-columns: 2fr 1fr 40px; gap: 10px; margin-bottom: 10px;">
                         <div>
+                            <label>Sản phẩm: <span style="color: red;">*</span></label>
                             <select class="product-select" required style="width: 100%; padding: 8px;">
                                 <option value="">Chọn sản phẩm</option>
                                 <?php foreach ($sanPhams as $sp): ?>
@@ -690,6 +691,7 @@ function getTrangThaiDisplay($tinhTrang) {
                             </select>
                         </div>
                         <div>
+                            <label>Số lượng: <span style="color: red;">*</span></label>
                             <input type="number" class="product-quantity" placeholder="Số lượng" min="1" required style="width: 100%; padding: 8px;">
                         </div>
                         <div>
