@@ -164,24 +164,38 @@ if ($_POST['action'] ?? '') {
             }
             
         } elseif ($action == 'delete') {
-            // Xóa phiếu xuất (giống logic imports.php)
+            // Xóa phiếu xuất (không cho xóa phiếu Đã duyệt/Bị từ chối)
             $maPX = $_POST['MaPX'] ?? '';
             
-            // Kiểm tra trạng thái - chỉ cho xóa khi "Đang xử lý"
+            // Kiểm tra trạng thái
             $stmt = $pdo->prepare("SELECT TinhTrang_PX FROM PHIEUXUAT WHERE MaPX = ?");
             $stmt->execute([$maPX]);
             $tinhTrang = $stmt->fetchColumn();
             
-            if ($tinhTrang == 'Đang xử lý') {
-                // Xóa chi tiết trước
-                $stmt = $pdo->prepare("DELETE FROM CHITIETPHIEUXUAT WHERE MaPX=?");
-                $stmt->execute([$maPX]);
-                
-                // Xóa phiếu
-                $stmt = $pdo->prepare("DELETE FROM PHIEUXUAT WHERE MaPX=?");
-                $stmt->execute([$maPX]);
+            // Không cho xóa phiếu "Đã duyệt" hoặc "Bị từ chối"
+            if ($tinhTrang == 'Đã duyệt' || $tinhTrang == 'Bị từ chối') {
+                header("Location: exports.php?error=Không thể xóa phiếu đã duyệt hoặc bị từ chối");
+                exit();
             }
-            // Không báo lỗi nếu trạng thái không đúng (xóa thầm lặng như imports.php)
+            
+            // Kiểm tra quyền: Nhân viên chỉ được xóa phiếu của mình
+            if ($userRole == 'Nhân viên') {
+                $stmt = $pdo->prepare("SELECT MaTK FROM PHIEUXUAT WHERE MaPX = ?");
+                $stmt->execute([$maPX]);
+                $maTK = $stmt->fetchColumn();
+                if ($maTK != $userId) {
+                    header("Location: exports.php?error=Bạn không có quyền xóa phiếu này");
+                    exit();
+                }
+            }
+            
+            // Xóa chi tiết trước
+            $stmt = $pdo->prepare("DELETE FROM CHITIETPHIEUXUAT WHERE MaPX=?");
+            $stmt->execute([$maPX]);
+            
+            // Xóa phiếu
+            $stmt = $pdo->prepare("DELETE FROM PHIEUXUAT WHERE MaPX=?");
+            $stmt->execute([$maPX]);
             
         } elseif ($action == 'edit_detail') {
             // Sửa chi tiết phiếu xuất - Cho phép sửa: Cửa hàng, SP, SLX
