@@ -365,17 +365,37 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 
+    <!-- Modal xác nhận xóa -->
+    <div id="confirmDeleteModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <h2>Xác Nhận Xóa</h2>
+            <p id="confirmDeleteMessage" style="margin: 20px 0; font-size: 16px;">Bạn có chắc chắn muốn xóa sản phẩm này?</p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-cancel" onclick="closeModal('confirmDeleteModal')" style="background-color: #999;">Hủy</button>
+                <button class="btn btn-delete" id="confirmDeleteBtn" onclick="confirmDelete()" style="background-color: #d32f2f;">Xóa</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../assets/js/script.js"></script>
     <script>
         function editProduct(maSP) {
             location.href = `products.php?edit=${maSP}`;
         }
 
+        let deleteConfirmMaSP = null;
+
         function deleteProduct(maSP) {
-            if (confirm('Xóa sản phẩm này?')) {
+            deleteConfirmMaSP = maSP;
+            document.getElementById('confirmDeleteMessage').innerText = `Bạn có chắc chắn muốn xóa sản phẩm "${maSP}"?`;
+            openModal('confirmDeleteModal');
+        }
+
+        function confirmDelete() {
+            if (deleteConfirmMaSP) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaSP" value="${maSP}">`;
+                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaSP" value="${deleteConfirmMaSP}">`;
                 document.body.appendChild(form);
                 form.submit();
             }

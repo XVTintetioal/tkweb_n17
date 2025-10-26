@@ -260,17 +260,37 @@ $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
     <?php endif; ?>
 
+    <!-- Modal xác nhận xóa -->
+    <div id="confirmDeleteModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <h2>Xác Nhận Xóa</h2>
+            <p id="confirmDeleteMessage" style="margin: 20px 0; font-size: 16px;">Bạn có chắc chắn muốn xóa cửa hàng này?</p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-cancel" onclick="closeModal('confirmDeleteModal')" style="background-color: #999;">Hủy</button>
+                <button class="btn btn-delete" id="confirmDeleteBtn" onclick="confirmDelete()" style="background-color: #d32f2f;">Xóa</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../assets/js/script.js"></script>
     <script>
         function editStore(maCH) {
             location.href = `stores.php?edit=${maCH}`;
         }
 
+        let deleteConfirmMaCH = null;
+
         function deleteStore(maCH) {
-            if (confirm('Xóa cửa hàng này?')) {
+            deleteConfirmMaCH = maCH;
+            document.getElementById('confirmDeleteMessage').innerText = `Bạn có chắc chắn muốn xóa cửa hàng "${maCH}"?`;
+            openModal('confirmDeleteModal');
+        }
+
+        function confirmDelete() {
+            if (deleteConfirmMaCH) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaCH" value="${maCH}">`;
+                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaCH" value="${deleteConfirmMaCH}">`;
                 document.body.appendChild(form);
                 form.submit();
             }

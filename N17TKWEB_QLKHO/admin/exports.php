@@ -825,6 +825,18 @@ function getTrangThaiDisplay($tinhTrang) {
         </div>
     </div>
 
+    <!-- Modal xác nhận xóa -->
+    <div id="confirmDeleteModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <h2>Xác Nhận Xóa</h2>
+            <p id="confirmDeleteMessage" style="margin: 20px 0; font-size: 16px;">Bạn có chắc chắn muốn xóa phiếu xuất này?</p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-cancel" onclick="closeModal('confirmDeleteModal')" style="background-color: #999;">Hủy</button>
+                <button class="btn btn-delete" id="confirmDeleteBtn" onclick="confirmDelete()" style="background-color: #d32f2f;">Xóa</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../assets/js/script.js"></script>
     <script>
         function openAddModal() {
@@ -908,15 +920,6 @@ function getTrangThaiDisplay($tinhTrang) {
                 });
         }
 
-        function deletePhieu(maPX) {
-            if (confirm('Bạn có chắc chắn muốn xóa phiếu xuất này?')) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaPX" value="${maPX}">`;
-                document.body.appendChild(form);
-                form.submit();
-            }
-        }
 
         function viewDetail(maPX, canEdit, canDelete) {
             fetch(`exports.php?action=get_detail&maPX=${encodeURIComponent(maPX)}`)
@@ -1074,11 +1077,19 @@ function getTrangThaiDisplay($tinhTrang) {
                 });
         }
 
+        let deleteConfirmMaPX = null;
+
         function deleteExport(maPX) {
-            if (confirm('Bạn có chắc chắn muốn xóa phiếu xuất này?')) {
+            deleteConfirmMaPX = maPX;
+            document.getElementById('confirmDeleteMessage').innerText = `Bạn có chắc chắn muốn xóa phiếu xuất "${maPX}"?`;
+            openModal('confirmDeleteModal');
+        }
+
+        function confirmDelete() {
+            if (deleteConfirmMaPX) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaPX" value="${maPX}">`;
+                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaPX" value="${deleteConfirmMaPX}">`;
                 document.body.appendChild(form);
                 form.submit();
             }
