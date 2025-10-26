@@ -551,11 +551,7 @@ foreach ($imports as $row) {
                                     <?php else: ?>
                                         <button class="btn btn-edit" disabled title="Chỉ sửa được khi trạng thái là 'Đang xử lý'">Sửa</button>
                                     <?php endif; ?>
-                                    <?php if ($import['info']['TinhTrang_PN'] == 'Đang xử lý'): ?>
-                                        <button class="btn btn-delete" onclick="deleteImport('<?php echo $import['info']['MaPN']; ?>')">Xóa</button>
-                                    <?php else: ?>
-                                        <button class="btn btn-delete" disabled title="Chỉ xóa được khi trạng thái là 'Đang xử lý'">Xóa</button>
-                                    <?php endif; ?>
+                                    <button class="btn btn-delete" onclick="deleteImport('<?php echo $import['info']['MaPN']; ?>')">Xóa</button>
                                     <?php if ($isLocked): ?>
                                         <button class="btn btn-status" disabled title="Phiếu nhập này đã bị khóa và không thể thay đổi trạng thái">Đổi trạng thái</button>
                                     <?php else: ?>
@@ -582,11 +578,7 @@ foreach ($imports as $row) {
                                             <?php else: ?>
                                                 <button class="btn btn-edit" disabled title="Chỉ sửa được khi trạng thái là 'Đang xử lý'">Sửa</button>
                                             <?php endif; ?>
-                                            <?php if ($import['info']['TinhTrang_PN'] == 'Đang xử lý'): ?>
-                                                <button class="btn btn-delete" onclick="deleteImport('<?php echo $import['info']['MaPN']; ?>')">Xóa</button>
-                                            <?php else: ?>
-                                                <button class="btn btn-delete" disabled title="Chỉ xóa được khi trạng thái là 'Đang xử lý'">Xóa</button>
-                                            <?php endif; ?>
+                                            <button class="btn btn-delete" onclick="deleteImport('<?php echo $import['info']['MaPN']; ?>')">Xóa</button>
                                             <?php if ($isLocked): ?>
                                                 <button class="btn btn-status" disabled title="Phiếu nhập này đã bị khóa và không thể thay đổi trạng thái">Đổi trạng thái</button>
                                             <?php else: ?>
