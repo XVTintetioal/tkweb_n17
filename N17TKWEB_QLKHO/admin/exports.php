@@ -164,37 +164,24 @@ if ($_POST['action'] ?? '') {
             }
             
         } elseif ($action == 'delete') {
-            // Xóa phiếu xuất (chỉ được xóa khi trạng thái "Đang xử lý")
-            $maPX = $_POST['MaPX'];
+            // Xóa phiếu xuất (giống logic imports.php)
+            $maPX = $_POST['MaPX'] ?? '';
             
-            // Kiểm tra trạng thái
+            // Kiểm tra trạng thái - chỉ cho xóa khi "Đang xử lý"
             $stmt = $pdo->prepare("SELECT TinhTrang_PX FROM PHIEUXUAT WHERE MaPX = ?");
             $stmt->execute([$maPX]);
             $tinhTrang = $stmt->fetchColumn();
             
-            if ($tinhTrang != 'Đang xử lý') {
-                header("Location: exports.php?error=Không thể xóa phiếu đã được xử lý");
-                exit();
-            }
-            
-            // Kiểm tra quyền: Nhân viên chỉ được xóa phiếu của mình
-            if ($userRole == 'Nhân viên') {
-                $stmt = $pdo->prepare("SELECT MaTK FROM PHIEUXUAT WHERE MaPX = ?");
+            if ($tinhTrang == 'Đang xử lý') {
+                // Xóa chi tiết trước
+                $stmt = $pdo->prepare("DELETE FROM CHITIETPHIEUXUAT WHERE MaPX=?");
                 $stmt->execute([$maPX]);
-                $maTK = $stmt->fetchColumn();
-                if ($maTK != $userId) {
-                    header("Location: exports.php?error=Bạn không có quyền xóa phiếu này");
-                    exit();
-                }
+                
+                // Xóa phiếu
+                $stmt = $pdo->prepare("DELETE FROM PHIEUXUAT WHERE MaPX=?");
+                $stmt->execute([$maPX]);
             }
-            
-            // Xóa chi tiết trước
-            $stmt = $pdo->prepare("DELETE FROM CHITIETPHIEUXUAT WHERE MaPX=?");
-            $stmt->execute([$maPX]);
-            
-            // Xóa phiếu
-            $stmt = $pdo->prepare("DELETE FROM PHIEUXUAT WHERE MaPX=?");
-            $stmt->execute([$maPX]);
+            // Không báo lỗi nếu trạng thái không đúng (xóa thầm lặng như imports.php)
             
         } elseif ($action == 'edit_detail') {
             // Sửa chi tiết phiếu xuất - Cho phép sửa: Cửa hàng, SP, SLX
