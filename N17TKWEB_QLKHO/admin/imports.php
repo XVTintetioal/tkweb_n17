@@ -52,8 +52,21 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
         }
     } elseif ($action == 'delete') {
         $maPN = $_POST['MaPN'] ?? '';
-        $stmt = $pdo->prepare("DELETE FROM PHIEUNHAP WHERE MaPN=?");
+        
+        // Kiểm tra trạng thái - chỉ cho xóa khi "Đang xử lý"
+        $stmt = $pdo->prepare("SELECT TinhTrang_PN FROM PHIEUNHAP WHERE MaPN = ?");
         $stmt->execute([$maPN]);
+        $tinhTrang = $stmt->fetchColumn();
+        
+        if ($tinhTrang == 'Đang xử lý') {
+            // Xóa chi tiết trước
+            $stmt = $pdo->prepare("DELETE FROM CHITIETPHIEUNHAP WHERE MaPN=?");
+            $stmt->execute([$maPN]);
+            
+            // Xóa phiếu
+            $stmt = $pdo->prepare("DELETE FROM PHIEUNHAP WHERE MaPN=?");
+            $stmt->execute([$maPN]);
+        }
     }
     elseif ($action == 'edit_detail') {
         $maPN = $_POST['MaPN'] ?? '';
