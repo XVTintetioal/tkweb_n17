@@ -116,50 +116,26 @@ if ($_POST['action'] ?? '') {
         } elseif ($action == 'delete') {
             $maSP = $_POST['MaSP'];
             
-            // Kiểm tra xem sản phẩm có trong phiếu xuất với trạng thái hoàn thành hoặc có thay đổi không
+            // Kiểm tra xem sản phẩm có trong phiếu xuất không (bất kỳ trạng thái nào)
             $stmt = $pdo->prepare("
                 SELECT COUNT(*) 
                 FROM CHITIETPHIEUXUAT ct
-                JOIN PHIEUXUAT px ON ct.MaPX = px.MaPX
-                WHERE ct.MaSP = ? AND px.TinhTrang_PX IN ('Hoàn thành', 'Có thay đổi')
+                WHERE ct.MaSP = ?
             ");
             $stmt->execute([$maSP]);
-            $hasCompletedExports = $stmt->fetchColumn() > 0;
+            $hasExports = $stmt->fetchColumn() > 0;
             
-            // Kiểm tra xem sản phẩm có trong phiếu nhập với trạng thái hoàn thành hoặc có thay đổi không
+            // Kiểm tra xem sản phẩm có trong phiếu nhập không (bất kỳ trạng thái nào)
             $stmt = $pdo->prepare("
                 SELECT COUNT(*) 
                 FROM CHITIETPHIEUNHAP ct
-                JOIN PHIEUNHAP pn ON ct.MaPN = pn.MaPN
-                WHERE ct.MaSP = ? AND pn.TinhTrang_PN IN ('Hoàn thành', 'Có thay đổi')
+                WHERE ct.MaSP = ?
             ");
             $stmt->execute([$maSP]);
-            $hasCompletedImports = $stmt->fetchColumn() > 0;
+            $hasImports = $stmt->fetchColumn() > 0;
             
-            if ($hasCompletedExports || $hasCompletedImports) {
-                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Đã có phiếu xuất liên quan, nên bạn không thể xóa. Với sản phẩm, bạn có thể đổi trạng thái sang \'Ngừng kinh doanh\'.'];
-                header("Location: products.php");
-                exit();
-            }
-            
-            // Kiểm tra xem có phiếu xuất hoặc nhập nào khác không (trạng thái khác)
-            $stmt = $pdo->prepare("
-                SELECT COUNT(*) 
-                FROM CHITIETPHIEUXUAT ct
-                JOIN PHIEUXUAT px ON ct.MaPX = px.MaPX
-                WHERE ct.MaSP = ?
-                UNION ALL
-                SELECT COUNT(*) 
-                FROM CHITIETPHIEUNHAP ct
-                JOIN PHIEUNHAP pn ON ct.MaPN = pn.MaPN
-                WHERE ct.MaSP = ?
-            ");
-            $stmt->execute([$maSP, $maSP]);
-            $results = $stmt->fetchAll();
-            $hasAnyTransactions = array_sum(array_column($results, 0)) > 0;
-            
-            if ($hasAnyTransactions) {
-                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Sản phẩm này đã có phiếu xuất/nhập liên quan, không thể xóa. Bạn có thể đổi trạng thái sang \'Ngừng kinh doanh\'.'];
+            if ($hasExports || $hasImports) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Đã có phiếu xuất về sản phẩm này, nên bạn không thể xóa. Bạn có thể đổi trạng thái sản phẩm thành \'Ngừng kinh doanh\'.'];
                 header("Location: products.php");
                 exit();
             }
