@@ -108,15 +108,12 @@ $accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="container" style="background:#fff; border-radius:16px; padding:25px; box-shadow:0 4px 15px rgba(0,0,0,0.1); margin-top:30px;">
         <h1 style="text-align: center; margin-bottom: 25px; color: #d4af37;">Quản Lý Tài Khoản</h1>
 
-        <!-- Thanh tìm kiếm & nút thêm -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <form method="GET" class="search-form" style="display: flex; gap: 10px;">
-                <input type="text" class="search-box" placeholder="Tìm kiếm tài khoản..." name="search"
-                       value="<?php echo htmlspecialchars($search); ?>">
-                <button type="submit" class="btn btn-search">Tìm</button>
+        <!-- Thanh tìm kiếm -->
+        <form method="GET" class="search-form" style="display: inline;">
+            <input type="text" class="search-box" placeholder="Tìm kiếm..." name="search" value="<?php echo htmlspecialchars($search); ?>">
+            <button type="submit" class="btn btn-search">Tìm</button>
             </form>
-            <button class="btn btn-add" onclick="openModal()">+ Thêm Tài Khoản</button>
-        </div>
+            <button class="btn btn-add" onclick="openModal()">Thêm Tài Khoản</button>
 
         <!-- Bảng danh sách tài khoản -->
         <table class="table">
