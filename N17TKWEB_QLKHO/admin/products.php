@@ -115,12 +115,66 @@ if ($_POST['action'] ?? '') {
             }
         } elseif ($action == 'delete') {
             $maSP = $_POST['MaSP'];
+            
+            // Kiểm tra xem sản phẩm có trong phiếu xuất với trạng thái hoàn thành hoặc có thay đổi không
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) 
+                FROM CHITIETPHIEUXUAT ct
+                JOIN PHIEUXUAT px ON ct.MaPX = px.MaPX
+                WHERE ct.MaSP = ? AND px.TinhTrang_PX IN ('Hoàn thành', 'Có thay đổi')
+            ");
+            $stmt->execute([$maSP]);
+            $hasCompletedExports = $stmt->fetchColumn() > 0;
+            
+            // Kiểm tra xem sản phẩm có trong phiếu nhập với trạng thái hoàn thành hoặc có thay đổi không
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) 
+                FROM CHITIETPHIEUNHAP ct
+                JOIN PHIEUNHAP pn ON ct.MaPN = pn.MaPN
+                WHERE ct.MaSP = ? AND pn.TinhTrang_PN IN ('Hoàn thành', 'Có thay đổi')
+            ");
+            $stmt->execute([$maSP]);
+            $hasCompletedImports = $stmt->fetchColumn() > 0;
+            
+            if ($hasCompletedExports || $hasCompletedImports) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Đã có phiếu xuất liên quan, nên bạn không thể xóa. Với sản phẩm, bạn có thể đổi trạng thái sang \'Ngừng kinh doanh\'.'];
+                header("Location: products.php");
+                exit();
+            }
+            
+            // Kiểm tra xem có phiếu xuất hoặc nhập nào khác không (trạng thái khác)
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) 
+                FROM CHITIETPHIEUXUAT ct
+                JOIN PHIEUXUAT px ON ct.MaPX = px.MaPX
+                WHERE ct.MaSP = ?
+                UNION ALL
+                SELECT COUNT(*) 
+                FROM CHITIETPHIEUNHAP ct
+                JOIN PHIEUNHAP pn ON ct.MaPN = pn.MaPN
+                WHERE ct.MaSP = ?
+            ");
+            $stmt->execute([$maSP, $maSP]);
+            $results = $stmt->fetchAll();
+            $hasAnyTransactions = array_sum(array_column($results, 0)) > 0;
+            
+            if ($hasAnyTransactions) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Sản phẩm này đã có phiếu xuất/nhập liên quan, không thể xóa. Bạn có thể đổi trạng thái sang \'Ngừng kinh doanh\'.'];
+                header("Location: products.php");
+                exit();
+            }
+            
             $stmt = $pdo->prepare("DELETE FROM SANPHAM WHERE MaSP=?");
             $stmt->execute([$maSP]);
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'Xóa sản phẩm thành công!'];
         }
     } catch (Exception $e) {
-        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
+        // Kiểm tra nếu là lỗi foreign key constraint
+        if (strpos($e->getMessage(), 'foreign key constraint') !== false || strpos($e->getMessage(), '1451') !== false) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Không thể xóa sản phẩm này vì đã có dữ liệu liên quan trong hệ thống. Bạn có thể đổi trạng thái sang \'Ngừng kinh doanh\'.'];
+        } else {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
+        }
     }
 
     header("Location: products.php"); // Reload trang

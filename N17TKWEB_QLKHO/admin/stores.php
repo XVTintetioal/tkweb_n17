@@ -71,12 +71,44 @@ if ($_POST['action'] ?? '') {
             }
         } elseif ($action == 'delete') {
             $maCH = $_POST['MaCH'];
+            
+            // Kiểm tra xem cửa hàng có phiếu xuất với trạng thái hoàn thành hoặc có thay đổi không
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) 
+                FROM PHIEUXUAT 
+                WHERE MaCH = ? AND TinhTrang_PX IN ('Hoàn thành', 'Có thay đổi')
+            ");
+            $stmt->execute([$maCH]);
+            $hasCompletedExports = $stmt->fetchColumn() > 0;
+            
+            if ($hasCompletedExports) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Đã có phiếu xuất liên quan, nên bạn không thể xóa cửa hàng này.'];
+                header("Location: stores.php");
+                exit();
+            }
+            
+            // Kiểm tra xem có phiếu xuất nào khác không (trạng thái khác)
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM PHIEUXUAT WHERE MaCH = ?");
+            $stmt->execute([$maCH]);
+            $hasAnyExports = $stmt->fetchColumn() > 0;
+            
+            if ($hasAnyExports) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Cửa hàng này đã có phiếu xuất liên quan, không thể xóa.'];
+                header("Location: stores.php");
+                exit();
+            }
+            
             $stmt = $pdo->prepare("DELETE FROM CUAHANG WHERE MaCH=?");
             $stmt->execute([$maCH]);
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'Xóa cửa hàng thành công!'];
         }
     } catch (Exception $e) {
-        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
+        // Kiểm tra nếu là lỗi foreign key constraint
+        if (strpos($e->getMessage(), 'foreign key constraint') !== false || strpos($e->getMessage(), '1451') !== false) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Không thể xóa cửa hàng này vì đã có dữ liệu liên quan trong hệ thống.'];
+        } else {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
+        }
     }
 
     header("Location: stores.php"); // Reload trang
